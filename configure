@@ -6336,43 +6336,34 @@ fi
 
 # Probe for the need for relocating the user-only binary.
 if ( [ "$linux_user" = yes ] || [ "$bsd_user" = yes ] ) && [ "$pie" = no ]; then
-  textseg_addr=
+  # An arbitrary address that makes it unlikely to collide with user
+  # programs.
+  image_base=
   case "$cpu" in
     arm | i386 | ppc* | s390* | sparc* | x86_64 | x32)
-      # ??? Rationale for choosing this address
-      textseg_addr=0x60000000
+      image_base=0x60000000
       ;;
     mips)
       # A 256M aligned address, high in the address space, with enough
       # room for the code_gen_buffer above it before the stack.
-      textseg_addr=0x60000000
+      image_base=0x60000000
       ;;
   esac
-  if [ -n "$textseg_addr" ]; then
+  if [ -n "$image_base" ]; then
     cat > $TMPC <<EOF
     int main(void) { return 0; }
 EOF
-    textseg_ldflags="-Wl,-Ttext-segment=$textseg_addr"
-    if ! compile_prog "" "$textseg_ldflags"; then
-      # In case ld does not support -Ttext-segment, edit the default linker
-      # script via sed to set the .text start addr.  This is needed on FreeBSD
-      # at least.
-      if ! $ld --verbose >/dev/null 2>&1; then
+    image_base_ldflags="-Wl,--image-base=$image_base"
+    if ! compile_prog "" "$image_base_ldflags"; then
+      image_base_ldflags="-Wl,-Ttext-segment=$image_base"
+      if ! compile_prog "" "$image_base_ldflags"; then
         error_exit \
             "We need to link the QEMU user mode binaries at a" \
             "specific text address. Unfortunately your linker" \
-            "doesn't support either the -Ttext-segment option or" \
-            "printing the default linker script with --verbose." \
+            "supports neither --image-base nor -Ttext-segment. " \
             "If you don't want the user mode binaries, pass the" \
             "--disable-user option to configure."
       fi
-
-      $ld --verbose | sed \
-        -e '1,/==================================================/d' \
-        -e '/==================================================/,$d' \
-        -e "s/[.] = [0-9a-fx]* [+] SIZEOF_HEADERS/. = $textseg_addr + SIZEOF_HEADERS/" \
-        -e "s/__executable_start = [0-9a-fx]*/__executable_start = $textseg_addr/" > config-host.ld
-      textseg_ldflags="-Wl,-T../config-host.ld"
     fi
   fi
 fi
@@ -7945,7 +7936,7 @@ if test "$gprof" = "yes" ; then
 fi
 
 if test "$target_linux_user" = "yes" || test "$target_bsd_user" = "yes" ; then
-  ldflags="$ldflags $textseg_ldflags"
+  ldflags="$ldflags $image_base_ldflags"
 fi
 
 # Newer kernels on s390 check for an S390_PGSTE program header and
